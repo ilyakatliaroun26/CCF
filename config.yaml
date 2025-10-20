@@ -1,0 +1,12 @@
+# config.yaml
+data:
+  training:
+    raw: "src/data/training/raw"
+    processed: "src/data/training/processed"
+  inference:
+    raw: "src/data/inference/raw"
+    processed: "src/data/inference/processed"
+
+sql:
+  training: "src/sql/training"
+  inference: "src/sql/inference"
