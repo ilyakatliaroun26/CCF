@@ -103,53 +103,91 @@ GROUP BY 1, 2
 overdrafts_with_rp AS (
 SELECT
 o.*
-, rp.creation_date as rp_creation_date
 , case when rp.user_id is not null then rp.product else 'OD' end as product
+, rp.creation_date as rp_creation_date
 FROM overdrafts o
 left join rep_plan rp on rp.user_id = o.user_id
 ),
 
+rp_balances AS (
+select
+    user_id,
+    dcd.end_time,
+    sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance) as outstanding_balance_eur
+from dbt.mmbr_loan_account_aud laa
+inner join dbt.mmbr_loan_product_mapping lpm
+    on laa.loan_name = lpm.loan_name
+    and lpm.product in ('repayment_plans')
+inner join dwh_cohort_dates dcd on dcd.start_time between laa.rev_timestamp and laa.end_timestamp
+group by user_id, dcd.end_time
+),
+
+limit_increases AS (
+    select
+        user_id,
+        rev_timestamp as increase_date,
+        max_amount_cents,
+        lag(max_amount_cents) over (partition by user_id order by rev_timestamp) as prev_limit
+    from od_users_enabled_limits
+),
+
+first_limit_increase AS (
+    select
+        li.user_id,
+        max(li.increase_date) as first_increase_date
+    from limit_increases li
+    inner join skeleton s on li.user_id = s.user_id
+    where
+        li.prev_limit is not null
+        and li.max_amount_cents > li.prev_limit -- actual increase
+        and li.increase_date between (s.default_date::date - interval '365 days') and s.default_date::date
+    group by li.user_id
+),
+
 reference_dates AS (
-select s.user_id
-, s.default_date::date
-, s.default_reason
-, s.reference_date::timestamp as skeleton_reference_date
-, o.rp_creation_date
-, o.product
-, case when o.creation_date::timestamp <= s.reference_date::timestamp then s.reference_date::timestamp
-    else o.creation_date::timestamp end as reference_date
+select
+    s.user_id,
+    s.default_date::date,
+    s.default_reason,
+    s.reference_date::timestamp as skeleton_reference_date,
+    o.rp_creation_date,
+    case when o.rp_creation_date > s.default_date then 'OD' else o.product end as product,
+    case 
+        when fli.first_increase_date is not null 
+             and fli.first_increase_date between 
+                 (case when o.creation_date::timestamp <= s.reference_date::timestamp 
+                       then s.reference_date::timestamp else o.creation_date::timestamp end)
+                 and s.default_date::timestamp
+            then fli.first_increase_date
+        else case when o.creation_date::timestamp <= s.reference_date::timestamp 
+                  then s.reference_date::timestamp else o.creation_date::timestamp end
+    end as reference_date
 from skeleton s
 inner join overdrafts_with_rp o on s.user_id = o.user_id
+left join first_limit_increase fli on s.user_id = fli.user_id
 ),
 
-model_group AS (
-select
-  user_id
-, case when product = 'OD' and date_add('day', 365, reference_date) <= default_date::date then 'group_1'
-       when product = 'OD' and date_add('day', 365, reference_date) > default_date::date then 'group_2'
-       when product in ('RP_0', 'RP_1', 'RP_2') and date_add('day', 14, default_date::date) >= rp_creation_date::date then 'group_3'
-       else 'exluded' end as group_label
-from reference_dates
-),
-
-final as (
+limits_balances as (
 select rd.user_id
 , rd.default_date
 , rd.default_reason
 , rd.reference_date::timestamp
 , rd.rp_creation_date
 , rd.product
-, mg.group_label
 , coalesce(NULLIF(el.max_amount_cents::float, 0), (uref.max_amount_cents::float / 100.0)::float, 0.0) as LIMIT
 , coalesce(uref.outstanding_balance_eur, 0) as BALANCE
-, case when mg.group_label in ('group_1', 'group_2') then coalesce(udef.outstanding_balance_eur, udefa.outstanding_balance_eur, 0)
-       when mg.group_label = 'group_3' then coalesce(udefrp.outstanding_balance_eur, 0)
-       else 0 end as EAD 
+, case when product in ('OD', 'RP_0')
+    then coalesce(udef.outstanding_balance_eur, udefa.outstanding_balance_eur, 0) 
+       when product in ('RP_1', 'RP_2') and rd.rp_creation_date > rd.default_date
+    then coalesce(udef.outstanding_balance_eur, udefa.outstanding_balance_eur, 0)  
+       when product in ('RP_1', 'RP_2')
+    then coalesce(rpb.outstanding_balance_eur, 0)
+       else 0 end as EAD
 --, add principal balance as EAD here for RP_0, RP_1, RP_2 
 --, ((exposure_at_default - balance) / ("limit" - balance)) as CCF
 from reference_dates rd
-inner join model_group mg on mg.user_id = rd.user_id
-inner join od_users_enabled_limits el on el.user_id = rd.user_id 
+inner join od_users_enabled_limits el 
+    on el.user_id = rd.user_id 
     and rd.reference_date::timestamp between el.rev_timestamp::timestamp and el.end_timestamp::timestamp
 left join dbt.bp_overdraft_users uref 
     on uref.user_id = el.user_id 
@@ -159,24 +197,47 @@ left join dbt.bp_overdraft_users uref
 left join dbt.bp_overdraft_users udef
     on udef.user_id = el.user_id 
     and udef.end_time::date = rd.default_date::date
-    and udef.od_enabled_flag = 1
     and udef.timeframe = 'day'
 left join dbt.bp_overdraft_users udefa 
     on udefa.user_id = el.user_id 
     and udefa.end_time::date = date_add('day', -1, rd.default_date::date)
-    and udefa.od_enabled_flag = 1
     and udefa.timeframe = 'day'
-left join dbt.bp_overdraft_users udefrp 
-    on udefrp.user_id = el.user_id 
-    and udefrp.end_time::date = rd.default_date::date
-    and udefrp.timeframe = 'day'
+left join rp_balances rpb 
+    on rpb.user_id = rd.user_id 
+    and rpb.end_time::date = rd.default_date::date
+
 )
 
-select *
+, final as (
+select user_id
+, default_date
+, default_reason
+, reference_date
+, rp_creation_date
+, product
+, row_number() OVER ( PARTITION BY user_id 
+    ORDER BY
+    CASE WHEN user_id = '4ba98231-70d8-42d3-b197-f1b4c5bbf8ea' AND "LIMIT" = 250 THEN 1 ELSE 2 END,
+    rp_creation_date DESC ) AS rn
+, "LIMIT"
+, BALANCE
+, EAD
 , BALANCE/"LIMIT" as avg_utilization_0M
 , case when EAD <= BALANCE then 0.0
-       when "LIMIT" - BALANCE <= "LIMIT" * 0.05 then EAD / "LIMIT"
+       when "LIMIT" - BALANCE <= "LIMIT" * 0.05 then EAD / "LIMIT" --check for 10%
        else (EAD - BALANCE) / ( "LIMIT" - BALANCE) end as CCF
-from final
+from limits_balances
 where "LIMIT" != 0
---and rd.rp_creation_date >= rd.reference_date
+and reference_date <= coalesce(rp_creation_date, '2100-01-01'::timestamp)
+and user_id not in (
+    '1d5124d0-c1df-440b-b506-d12d8dbfa861',
+    'b586f1e5-67ec-4ab5-b640-485593713fc5',
+    '7a7060a8-c55e-47d2-b524-9e7d720d6024',
+    '919aaa26-1abb-4cdf-b0b6-77724671b630',
+    '3c3b1b48-75f3-475f-97d2-51d3412bae09',
+    'd632d120-2f3b-4a14-af36-4fe2036deb7a'
+    ) --RP users with data issues (duplicates bug in Mambu)
+)
+
+select * from final 
+WHERE rn = 1

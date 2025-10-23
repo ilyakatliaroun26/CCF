@@ -75,12 +75,7 @@ insert into credit_risk_playground.bp_ccf_training_snapshot
     Base
     --------------------------------------------------- */
 
-with rep_plan as (
-select distinct user_id 
-from plutonium_repayment_plan
-)
-
-, pu_first_row as (
+with pu_first_row as (
     select
         user_id,
         min(created) as min_rev_timestamp
@@ -94,13 +89,11 @@ od_users as (
         osa.user_id,
         s.encoded_key as instrument_id,
         osa.created as rev_timestamp,
-        case when osa.status = 'ENABLED' then 1 else 0 end as enabled,
-        case when r.user_id is not null then 'RP' else 'OD' end as product
+        case when osa.status = 'ENABLED' then 1 else 0 end as enabled
     from pu_overdraft_history as osa
     inner join pu_first_row as pfr using (user_id)
     left join dbt.mmbr_user_match cl on cl.user_id = osa.user_id
     left join mmbr_savings_account s on s.encoded_key = cl.encoded_key and s.account_type = 'CURRENT_ACCOUNT'
-    left join rep_plan r on r.user_id = osa.user_id
     where 1=1
     and rev_timestamp >= pfr.min_rev_timestamp
 	-- todo: filter more detailed for migration timestamp
@@ -112,15 +105,13 @@ od_users as (
         u.id as user_id,
         s.encoded_key as instrument_id,
         osa.rev_timestamp,
-        osa.enabled,
-        case when r.user_id is not null then 'RP' else 'OD' end as product
+        osa.enabled
     from ddb_overdraft_settings_aud as osa
     inner join etl_reporting.cmd_users as u using (user_created)
     left join pu_first_row as pfr
         on u.id = pfr.user_id
     left join dbt.mmbr_user_match cl on cl.user_id = u.id
     left join mmbr_savings_account s on s.encoded_key = cl.encoded_key and s.account_type = 'CURRENT_ACCOUNT'
-    left join rep_plan r on r.user_id = u.id
     where
         osa.rev_timestamp < pfr.min_rev_timestamp -- Include only historical records before Plutonium migration
 )
@@ -132,7 +123,6 @@ user_id
 , min(rev_timestamp::TIMESTAMP) AS creation_date
 FROM
 od_users
-where product <> 'RP'
 and enabled = 1
 GROUP BY 1, 2
 )
