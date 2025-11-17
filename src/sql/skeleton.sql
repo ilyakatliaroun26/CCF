@@ -1,25 +1,4 @@
-drop table credit_risk_playground.bp_ccf_training_snapshot
-;
-create table if not exists credit_risk_playground.bp_ccf_training_snapshot
-(
-	user_id VARCHAR(365)   ENCODE lzo
-	, dunning_second_reminder_date VARCHAR(365)   ENCODE lzo
-    , dunning_downgrade_date VARCHAR(365)   ENCODE lzo
-    , dunning_closure_date VARCHAR(365)   ENCODE lzo
-    , write_off_date VARCHAR(365)   ENCODE lzo
-    , dpd_90_date VARCHAR(365)   ENCODE lzo
-    , d26_insolvency_date VARCHAR(365)   ENCODE lzo
-    , infocard_date VARCHAR(365)   ENCODE lzo
-    , schufa_insolvency_date VARCHAR(365)   ENCODE lzo
-    , crif_insolvency_date VARCHAR(365)   ENCODE lzo
-    , internal_default_date VARCHAR(365)   ENCODE lzo
-    , default_date VARCHAR(365)   ENCODE lzo
-    , default_reason VARCHAR(365)   ENCODE lzo
-)
-
-;
-
-insert into credit_risk_playground.bp_ccf_training_snapshot
+insert into credit_risk_playground.bp_od_ccf_training_default_snapshot
 (
     user_id,
     dunning_second_reminder_date,
@@ -81,9 +60,9 @@ with pu_first_row as (
         min(created) as min_rev_timestamp
     from pu_overdraft_history
     group by 1
-),
+)
 
-od_users as (
+, od_users as (
     -- Include rows from Plutonium after the first populated date
     select
         osa.user_id,
@@ -123,7 +102,7 @@ user_id
 , min(rev_timestamp::TIMESTAMP) AS creation_date
 FROM
 od_users
-and enabled = 1
+where enabled = 1
 GROUP BY 1, 2
 )
 
@@ -149,7 +128,7 @@ GROUP BY 1, 2
     inner join overdrafts o on o.user_id = a.id
         where status in ('BO_2nd_Official_Notice','BO_2nd_Official_Notice_OD',
                          'BO_Revocation_Premium','Account_closed','BO_Account_Closure')
-            and rev_tstmp::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+            and rev_tstmp::date <= '2025-10-31'::date
             and o.creation_date::date <= a.rev_tstmp::date
     group by
         a.id
@@ -201,7 +180,7 @@ new_dunning_status as (
     where action in ('SECOND_OFFICIAL_NOTIFICATION','SEND_SECOND_OFFICIAL_REMINDER_EMAIL',
                          'SEND_USER_DOWNGRADE_EMAIL','SEND_CLOSURE_EMAIL', 
                          'ACCOUNT_CLOSED_EMAIL', 'SECOND_OFFICIAL_REMINDER')
-        and created_at::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+        and created_at::date <= '2025-10-31'::date
         and o.creation_date::date <= a.created_at::date
     group by
         a.user_id
@@ -248,8 +227,8 @@ Insolve26 as (
     left join public.neodymium_participant np on ni.id = np.garnishment_id
     inner join overdrafts o on o.user_id = np.customer_id
     where np.type = 'RESPONDENT'
-        and ni.origin_date::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
-        and np.created::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+        and ni.origin_date::date <= '2025-10-31'::date
+        and np.created::date <= '2025-10-31'::date
         and o.creation_date::date <= ni.origin_date::date
         and o.creation_date::date <= np.created::date
     group by np.customer_id
@@ -273,7 +252,7 @@ base as (
         sum(eur_value)*-1 as "value"
     from dbt.ucm_stg_od_write_off_txns a
     inner join overdrafts o on o.user_id = a.user_id
-    where write_off_dt::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+    where write_off_dt::date <= '2025-10-31'::date
     and o.creation_date::date <= a.write_off_dt::date
     group by 1
 ),
@@ -292,16 +271,16 @@ daily_arrears as (
         b.end_time,
         datediff('day', start_in_arrears::date, b.end_time::date) + 1 as dpd
     from dbt.bp_arrears_reg_aud a
-    inner join dwh_cohort_dates b on b.end_time between a.start_in_arrears and a.end_in_arrears
+    inner join dwh_cohort_dates b on b.end_time between a.start_in_arrears and a.end_in_arrears and b.end_time <= getdate()
 ),
 
 defaulted_arrears as (
     select 
         da.user_id, 
-        min(da.end_time) as dpd_90_date
+        min(da.end_time)::date as dpd_90_date
     from daily_arrears da
     inner join overdrafts o on o.user_id = da.user_id
-    where end_time::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+    where end_time::date <= '2025-10-31'::date
     and o.creation_date::date <= da.end_time::date
     and dpd = 90
     group by da.user_id
@@ -344,7 +323,7 @@ credit_write_offs as (
         on mla.account_holder_key = mum.mmbr_client_key
     left join dbt.stg_write_off_closures as c using (user_id)
     inner join overdrafts o on o.user_id = mum.user_id
-    where lt.entry_date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+    where lt.entry_date <= '2025-10-31'::date
     and o.creation_date::date <= lt.entry_date::date
     group by 1, 2, 3, 4, 5, 6, 7, 8, 9
 ),
@@ -392,7 +371,7 @@ TBIL_infocards as (
     -- tbil dunning-related infocards
     where t.name in ('TRANSACTION_BASED_INSTALMENT_LOAN_COLLECTION_PROCESS_ACTION_FOUR')
     and i.created::date >= '2020-11-29' --first infocard created (source TBIL arrears dashboard)
-    and i.created::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+    and i.created::date <= '2025-10-31'::date
     and o.creation_date::date <= i.created::date
 ),
 
@@ -435,7 +414,7 @@ ccra as (
     inner join overdrafts o on o.user_id = a.user_id
     where rating in ('N', 'O', 'P')
         and provider like 'SCHUFA%%'
-        and requested_on::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+        and requested_on::date <= '2025-10-31'::date
         and o.creation_date::date <= a.requested_on::date
 ),
 
@@ -455,7 +434,7 @@ csr as (
                 )
             )
         )
-        and requested_on::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+        and requested_on::date <= '2025-10-31'::date
         and o.creation_date::date <= a.requested_on::date
 ),
 
@@ -488,7 +467,7 @@ crif as (
     inner join overdrafts o on o.user_id = a.user_id
     where rating in ('P')
             and provider in ('CRIF')
-            and requested_on::date <= ('2024-09-30'::date + INTERVAL '1 YEAR 3 DAYS')
+            and requested_on::date <= '2025-10-31'::date
             and o.creation_date::date <= a.requested_on::date
     group by
     a.user_id

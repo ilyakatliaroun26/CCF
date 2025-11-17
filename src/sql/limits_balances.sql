@@ -1,8 +1,25 @@
+insert into credit_risk_playground.bp_od_ccf_training_snapshot
+(
+    user_id,
+    default_date,
+    default_reason,
+    reference_date,
+    rp_creation_date,
+    creation_date,
+    product,
+    "limit",
+    BALANCE,
+    EAD,
+    od_utilization_current,
+    is_drawn,
+    CCF
+)
+
 with skeleton as (
     select
         base.*,
         (base.default_date::date - interval '365 days') as reference_date
-    from credit_risk_playground.bp_ccf_training_snapshot base
+    from credit_risk_playground.bp_od_ccf_training_default_snapshot base
 ),
 
 rep_plan as (
@@ -112,18 +129,20 @@ left join rep_plan rp on rp.user_id = o.user_id
 rp_balances AS (
 select
     user_id,
-    dcd.end_time,
+    dcd.start_time,
     sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance) as outstanding_balance_eur
 from dbt.mmbr_loan_account_aud laa
 inner join dbt.mmbr_loan_product_mapping lpm
     on laa.loan_name = lpm.loan_name
     and lpm.product in ('repayment_plans')
 inner join dwh_cohort_dates dcd on dcd.start_time between laa.rev_timestamp and laa.end_timestamp
-group by user_id, dcd.end_time
+group by user_id, dcd.start_time
 ),
 
+-- Logic revised to exclude limit increases after reference date
+/*
 limit_increases AS (
-    select
+   select
         user_id,
         rev_timestamp as increase_date,
         max_amount_cents,
@@ -143,6 +162,21 @@ first_limit_increase AS (
         and li.increase_date between (s.default_date::date - interval '365 days') and s.default_date::date
     group by li.user_id
 ),
+*/
+
+write_offs AS (
+    SELECT DISTINCT
+        w.*
+        , case when (od_status!='Unarranged' or od_status is null) then 
+       case when w.reason = 'Credit' then 'CC'
+            when w.reason = 'TBIL' then 'TBIL'
+            when w.reason = 'RP_PHASE2' then 'RP_2'
+            else 'Arranged Overdraft'
+            end 
+       else 'Unarranged Overdraft'
+       end as wo_reason
+    FROM dbt.write_off w
+),
 
 reference_dates AS (
 select
@@ -151,7 +185,11 @@ select
     s.default_reason,
     s.reference_date::timestamp as skeleton_reference_date,
     o.rp_creation_date,
+    o.creation_date,
     case when o.rp_creation_date > s.default_date then 'OD' else o.product end as product,
+    case when o.creation_date::timestamp <= s.reference_date::timestamp 
+        then s.reference_date::timestamp else o.creation_date::timestamp end as reference_date
+    /*
     case 
         when fli.first_increase_date is not null 
              and fli.first_increase_date between 
@@ -162,9 +200,11 @@ select
         else case when o.creation_date::timestamp <= s.reference_date::timestamp 
                   then s.reference_date::timestamp else o.creation_date::timestamp end
     end as reference_date
+    */
+
 from skeleton s
 inner join overdrafts_with_rp o on s.user_id = o.user_id
-left join first_limit_increase fli on s.user_id = fli.user_id
+--left join first_limit_increase fli on s.user_id = fli.user_id
 ),
 
 limits_balances as (
@@ -173,15 +213,14 @@ select rd.user_id
 , rd.default_reason
 , rd.reference_date::timestamp
 , rd.rp_creation_date
+, rd.creation_date
 , rd.product
 , coalesce(NULLIF(el.max_amount_cents::float, 0), (uref.max_amount_cents::float / 100.0)::float, 0.0) as LIMIT
 , coalesce(uref.outstanding_balance_eur, 0) as BALANCE
 , case when product in ('OD', 'RP_0')
-    then coalesce(udef.outstanding_balance_eur, udefa.outstanding_balance_eur, 0) 
-       when product in ('RP_1', 'RP_2') and rd.rp_creation_date > rd.default_date
-    then coalesce(udef.outstanding_balance_eur, udefa.outstanding_balance_eur, 0)  
+    then coalesce(wo.eur_written_off, udef.outstanding_balance_eur, 0) 
        when product in ('RP_1', 'RP_2')
-    then coalesce(rpb.outstanding_balance_eur, 0)
+    then coalesce(wo.eur_written_off, rpb.outstanding_balance_eur, 0)
        else 0 end as EAD
 --, add principal balance as EAD here for RP_0, RP_1, RP_2 
 --, ((exposure_at_default - balance) / ("limit" - balance)) as CCF
@@ -198,10 +237,10 @@ left join dbt.bp_overdraft_users udef
     on udef.user_id = el.user_id 
     and udef.end_time::date = rd.default_date::date
     and udef.timeframe = 'day'
-left join dbt.bp_overdraft_users udefa 
-    on udefa.user_id = el.user_id 
-    and udefa.end_time::date = date_add('day', -1, rd.default_date::date)
-    and udefa.timeframe = 'day'
+left join write_offs wo 
+    on wo.user_id = el.user_id 
+    and wo.write_off_dt::date = rd.default_date::date
+    and wo.wo_reason in ('RP_2', 'Arranged Overdraft')
 left join rp_balances rpb 
     on rpb.user_id = rd.user_id 
     and rpb.end_time::date = rd.default_date::date
@@ -214,6 +253,7 @@ select user_id
 , default_reason
 , reference_date
 , rp_creation_date
+, creation_date
 , product
 , row_number() OVER ( PARTITION BY user_id 
     ORDER BY
@@ -222,9 +262,10 @@ select user_id
 , "LIMIT"
 , BALANCE
 , EAD
-, BALANCE/"LIMIT" as avg_utilization_0M
+, BALANCE/"LIMIT" as od_utilization_current
+, case when EAD > BALANCE then 1 else 0 end as is_drawn
 , case when EAD <= BALANCE then 0.0
-       when "LIMIT" - BALANCE <= "LIMIT" * 0.05 then EAD / "LIMIT" --check for 10%
+       when "LIMIT" - BALANCE <= "LIMIT" * 0.1 then EAD / "LIMIT" --check for 10%
        else (EAD - BALANCE) / ( "LIMIT" - BALANCE) end as CCF
 from limits_balances
 where "LIMIT" != 0
@@ -239,5 +280,19 @@ and user_id not in (
     ) --RP users with data issues (duplicates bug in Mambu)
 )
 
-select * from final 
+select 
+user_id
+, default_date
+, default_reason
+, reference_date
+, rp_creation_date
+, creation_date
+, product
+, "LIMIT"
+, BALANCE
+, EAD
+, od_utilization_current
+, is_drawn
+, CCF
+from final 
 WHERE rn = 1
