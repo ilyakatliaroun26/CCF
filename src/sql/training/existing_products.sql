@@ -6,7 +6,11 @@ with base as (
     select
     laa.user_id,
     dcd.start_time,
+<<<<<<< HEAD
     sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance) as cc_outstanding_balance_eur
+=======
+    nullif(sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance), 0) as cc_outstanding_balance_eur
+>>>>>>> origin/model_version_release
 from dbt.mmbr_loan_account_aud laa
 inner join dbt.mmbr_loan_product_mapping lpm
     on laa.loan_name = lpm.loan_name
@@ -23,7 +27,11 @@ inner join dbt.mmbr_loan_product_mapping lpm
     select
     laa.user_id,
     dcd.start_time,
+<<<<<<< HEAD
     sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance) as tbil_outstanding_balance_eur
+=======
+    nullif(sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance), 0) as tbil_outstanding_balance_eur
+>>>>>>> origin/model_version_release
 from dbt.mmbr_loan_account_aud laa
 inner join dbt.mmbr_loan_product_mapping lpm
     on laa.loan_name = lpm.loan_name
@@ -39,11 +47,7 @@ inner join dbt.mmbr_loan_product_mapping lpm
 select 
 base.user_id
 , base.reference_date
-, case when coalesce(cc.cc_outstanding_balance_eur, 0) > 0 and coalesce(t.tbil_outstanding_balance_eur, 0) > 0 then 1 else 0 end as ep__is_cc_tbil
-, case when coalesce(cc.cc_outstanding_balance_eur, 0) > 0 then 1 else 0 end as ep__is_cc
-, case when coalesce(t.tbil_outstanding_balance_eur, 0) > 0 then 1 else 0 end as ep__is_tbil
-, cc.cc_outstanding_balance_eur as ep__cc_balance
-, t.tbil_outstanding_balance_eur as ep__tbil_balance
+, coalesce(cc.cc_outstanding_balance_eur, 0) + coalesce(t.tbil_outstanding_balance_eur, 0) as ep__cc_tbil_balance
 from base
 left join consumer_credit cc on cc.user_id = base.user_id
 left join tbil t on t.user_id = base.user_id

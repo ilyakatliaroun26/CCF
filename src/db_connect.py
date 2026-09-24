@@ -12,7 +12,7 @@ class RedshiftClient:
         config = load_config(config_path)
         self.sql_dirs = config['sql']
         self.host = os.getenv('DWH_HOST')
-        self.port = os.getenv('DWH_PORT', 5439)
+        self.port = os.getenv('DWH_PORT', 80)
         self.db = os.getenv('DWH_DB')
         self.user = os.getenv('DWH_USER')
         self.password = os.getenv('DWH_PASSWORD')

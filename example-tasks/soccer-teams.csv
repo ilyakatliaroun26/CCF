@@ -1,0 +1,99 @@
+# extracted from dataset https://www.kaggle.com/datasets/hugomathien/soccer/
+,id,name,league,goalDiff_home,goalDiff_away
+0,9823,FC Bayern Munich,7809,286,156
+1,8178,Bayer 04 Leverkusen,7809,117,37
+2,10189,FC Schalke 04,7809,114,-24
+3,8721,VfL Wolfsburg,7809,92,-25
+4,9810,Eintracht Frankfurt,7809,0,-84
+5,9912,DSC Arminia Bielefeld,7809,-10,-17
+6,8398,FC Energie Cottbus,7809,-8,-19
+7,9788,Borussia Mönchengladbach,7809,83,-59
+8,8295,Karlsruher SC,7809,-4,-20
+9,9790,Hamburger SV,7809,7,-84
+10,8697,SV Werder Bremen,7809,27,-75
+11,8177,Hertha BSC Berlin,7809,-11,-54
+12,8722,1. FC Köln,7809,-23,-62
+13,9911,VfL Bochum,7809,-22,-25
+14,9789,Borussia Dortmund,7809,186,83
+15,10269,VfB Stuttgart,7809,24,-50
+16,9904,Hannover 96,7809,23,-129
+17,8226,TSG 1899 Hoffenheim,7809,34,-68
+18,8358,SC Freiburg,7809,-7,-66
+19,8165,1. FC Nürnberg,7809,-10,-66
+20,9905,1. FSV Mainz 05,7809,42,-41
+21,8350,1. FC Kaiserslautern,7809,-10,-23
+22,8152,FC St. Pauli,7809,-14,-19
+23,8406,FC Augsburg,7809,1,-42
+24,8357,SpVgg Greuther Fürth,7809,-26,-8
+25,8194,Fortuna Düsseldorf,7809,-4,-14
+26,9776,Eintracht Braunschweig,7809,-6,-25
+27,8460,SC Paderborn 07,7809,-10,-24
+28,8262,SV Darmstadt 98,7809,-14,-1
+29,8234,FC Ingolstadt 04,7809,4,-13
+30,10260,Manchester United,1729,218,84
+31,9825,Arsenal,1729,184,69
+32,8472,Sunderland,1729,3,-111
+33,8654,West Ham United,1729,21,-78
+34,10252,Aston Villa,1729,-19,-108
+35,8668,Everton,1729,92,-8
+36,8549,Middlesbrough,1729,-3,-26
+37,8559,Bolton Wanderers,1729,-11,-61
+38,8667,Hull City,1729,-31,-68
+39,8455,Chelsea,1729,204,93
+40,10194,Stoke City,1729,45,-124
+41,8650,Liverpool,1729,160,34
+42,10261,Newcastle United,1729,16,-114
+43,9879,Fulham,1729,25,-79
+44,8586,Tottenham Hotspur,1729,117,6
+45,8659,West Bromwich Albion,1729,-12,-88
+46,8462,Portsmouth,1729,-11,-40
+47,8456,Manchester City,1729,240,59
+48,8655,Blackburn Rovers,1729,8,-85
+49,8528,Wigan Athletic,1729,-36,-84
+50,8602,Wolverhampton Wanderers,1729,-33,-53
+51,8191,Burnley,1729,-12,-53
+52,8658,Birmingham City,1729,3,-33
+53,8483,Blackpool,1729,-7,-16
+54,10172,Queens Park Rangers,1729,-17,-67
+55,9850,Norwich City,1729,-2,-91
+56,10003,Swansea City,1729,23,-47
+57,9798,Reading,1729,-10,-20
+58,8466,Southampton,1729,52,-16
+59,9826,Crystal Palace,1729,-15,-16
+60,8344,Cardiff City,1729,-15,-27
+61,8197,Leicester City,1729,23,0
+62,8678,Bournemouth,1729,-11,-11
+63,9817,Watford,1729,1,-11
+64,10267,Valencia CF,21518,138,-23
+65,8371,CA Osasuna,21518,27,-107
+66,9783,RC Deportivo de La Coruña,21518,-4,-89
+67,8388,CD Numancia,21518,1,-32
+68,8696,Racing Santander,21518,-18,-48
+69,9869,Real Sporting de Gijón,21518,-6,-97
+70,8603,Real Betis Balompié,21518,-6,-69
+71,8558,RCD Espanyol,21518,23,-119
+72,8315,Athletic Club de Bilbao,21518,74,-71
+73,9906,Atlético Madrid,21518,197,6
+74,8302,Sevilla FC,21518,119,-38
+75,10205,Villarreal CF,21518,91,-51
+76,8633,Real Madrid CF,21518,358,181
+77,8634,FC Barcelona,21518,394,223
+78,8305,Getafe CF,21518,23,-135
+79,8661,RCD Mallorca,21518,44,-84
+80,9865,UD Almería,21518,-16,-103
+81,9864,Málaga CF,21518,54,-84
+82,10281,Real Valladolid,21518,2,-70
+83,8479,RC Recreativo,21518,-12,-11
+84,8394,Real Zaragoza,21518,-6,-75
+85,9867,CD Tenerife,21518,-3,-31
+86,9868,Xerez Club Deportivo,21518,-9,-19
+87,10278,Hércules Club de Fútbol,21518,0,-24
+88,8581,Levante UD,21518,8,-106
+89,8560,Real Sociedad,21518,66,-71
+90,8370,Rayo Vallecano,21518,-7,-106
+91,7878,Granada CF,21518,-11,-109
+92,9910,RC Celta de Vigo,21518,14,-39
+93,10268,Elche CF,21518,-11,-36
+94,8372,SD Eibar,21518,-5,-28
+95,7869,Córdoba CF,21518,-21,-25
+96,8306,UD Las Palmas,21518,8,-16

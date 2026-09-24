@@ -11,7 +11,9 @@ insert into credit_risk_playground.bp_od_ccf_training_snapshot
     BALANCE,
     EAD,
     od_utilization_current,
+    od_open_limit,
     is_drawn,
+    is_drawn_over_limit,
     CCF
 )
 
@@ -56,6 +58,7 @@ od_users as (
         coalesce(
             lead(rev_timestamp - interval '0.000001 second', 1) 
             over (partition by osa.user_id order by rev_timestamp), '2100-01-01')::timestamp as end_timestamp,
+        osa.status,
         case when osa.status = 'ENABLED' then 1 else 0 end as enabled,
         coalesce(osa.amount_cents, 0)::numeric as max_amount_cents
     from pu_overdraft_history as osa
@@ -74,6 +77,7 @@ od_users as (
         s.encoded_key as instrument_id,
         osa.rev_timestamp as rev_timestamp,
         osa.end_timestamp as end_timestamp,
+        NULL::varchar as status,
         osa.enabled,
         coalesce(osa.max_amount_cents, 0)::numeric as max_amount_cents
     from ddb_overdraft_settings_aud as osa
@@ -97,6 +101,7 @@ od_users_enabled_limits as (select
     user_id,
     instrument_id,
     rev_timestamp,
+    status,
     case when next_time_stamp is null then end_timestamp
         else least(end_timestamp, next_time_stamp) end as end_timestamp,
     enabled,
@@ -106,15 +111,41 @@ from lag_table
 where rev_timestamp <= end_timestamp
 ),
 
-overdrafts AS (
-SELECT
-user_id
-, instrument_id
-, min(rev_timestamp::timestamp)::timestamp AS creation_date
-FROM
-od_users_enabled_limits
-where enabled = 1
-GROUP BY 1, 2
+pu_lifecycle as (
+    select
+        od.*,
+        sum(
+            case
+                when od.status = 'DISABLED' then 1
+                else 0
+            end
+        ) over (
+            partition by od.user_id
+            order by od.rev_timestamp::timestamp
+            rows between unbounded preceding and current row
+        ) as disable_cycle
+    from od_users_enabled_limits od
+    inner join skeleton s on s.user_id = od.user_id and od.rev_timestamp::date <= s.default_date::date
+),
+
+pu_enabled_starts as (
+    select
+        user_id,
+        instrument_id,
+        disable_cycle,
+        min(rev_timestamp::timestamp)::timestamp as enabled_start
+    from pu_lifecycle
+    where enabled = 1
+    group by 1, 2, 3
+),
+
+overdrafts as (
+    select
+        user_id,
+        instrument_id,
+        max(enabled_start::timestamp)::timestamp as creation_date
+    from pu_enabled_starts
+    group by 1, 2
 ),
 
 overdrafts_with_rp AS (
@@ -166,7 +197,7 @@ first_limit_increase AS (
 
 write_offs AS (
     SELECT DISTINCT
-        w.*
+        w.user_id
         , case when (od_status!='Unarranged' or od_status is null) then 
        case when w.reason = 'Credit' then 'CC'
             when w.reason = 'TBIL' then 'TBIL'
@@ -174,8 +205,11 @@ write_offs AS (
             else 'Arranged Overdraft'
             end 
        else 'Unarranged Overdraft'
-       end as wo_reason
+       end as wo_reason,
+        min(w.write_off_dt::date) as write_off_dt,
+        sum(w.eur_written_off) as eur_written_off
     FROM dbt.write_off w
+    group by 1, 2
 ),
 
 reference_dates AS (
@@ -207,6 +241,16 @@ inner join overdrafts_with_rp o on s.user_id = o.user_id
 --left join first_limit_increase fli on s.user_id = fli.user_id
 ),
 
+last_active_limit AS (
+    SELECT
+        user_id,
+        MAX(end_time::date) AS last_active_limit_date
+    FROM dbt.bp_overdraft_users
+    WHERE od_enabled_flag = 1
+    AND timeframe= 'day'
+    GROUP BY user_id
+),
+
 limits_balances as (
 select rd.user_id
 , rd.default_date
@@ -228,6 +272,8 @@ from reference_dates rd
 inner join od_users_enabled_limits el 
     on el.user_id = rd.user_id 
     and rd.reference_date::timestamp between el.rev_timestamp::timestamp and el.end_timestamp::timestamp
+LEFT JOIN last_active_limit l
+    ON l.user_id = rd.user_id
 left join dbt.bp_overdraft_users uref 
     on uref.user_id = el.user_id 
     and uref.end_time::date = rd.reference_date::date 
@@ -243,8 +289,12 @@ left join write_offs wo
     and wo.wo_reason in ('RP_2', 'Arranged Overdraft')
 left join rp_balances rpb 
     on rpb.user_id = rd.user_id 
-    and rpb.end_time::date = rd.default_date::date
+    and rpb.start_time::date = rd.default_date::date
 
+-- Exclude users whose last active limit was at least 6 months before default
+WHERE (rd.product NOT IN ('OD') OR
+       l.last_active_limit_date > rd.default_date::date - INTERVAL '180 day'
+      )
 )
 
 , final as (
@@ -263,9 +313,11 @@ select user_id
 , BALANCE
 , EAD
 , BALANCE/"LIMIT" as od_utilization_current
+, case when "LIMIT" < BALANCE then 0 else ("LIMIT" - BALANCE) / "LIMIT" end as od_open_limit
 , case when EAD > BALANCE then 1 else 0 end as is_drawn
+, case when EAD > BALANCE and EAD > "LIMIT" then 1 else 0 end as is_drawn_over_limit
 , case when EAD <= BALANCE then 0.0
-       when "LIMIT" - BALANCE <= "LIMIT" * 0.1 then EAD / "LIMIT" --check for 10%
+       when EAD > "LIMIT" then 1.0
        else (EAD - BALANCE) / ( "LIMIT" - BALANCE) end as CCF
 from limits_balances
 where "LIMIT" != 0
@@ -292,7 +344,9 @@ user_id
 , BALANCE
 , EAD
 , od_utilization_current
+, od_open_limit
 , is_drawn
+, is_drawn_over_limit
 , CCF
 from final 
 WHERE rn = 1

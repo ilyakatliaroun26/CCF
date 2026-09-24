@@ -9,23 +9,29 @@ with base as (
         user_id,
         requested_on,
         provider,
+
+        -- provisions logic incorporated to map following ratings to M
         case 
-            when requested_on >= '2025-07-05 21:57:00.000000'::timestamp
-                then 
-                    case
-                        when rating = 'A' then 'B'
-                        when rating = 'B' then 'C'
-                        when rating = 'C' then 'D'
-                        when rating = 'D' then 'E'
-                        when rating = 'E' then 'F'
-                        when rating = 'F' then 'G'
-                        when rating in ('H', 'I', 'K', 'L') then 'M'
-                        else rating
-                    end
+            when rating in ('H', 'I', 'K', 'L', 'UNKNOWN') then 'M'
+
+            -- SCHUFA masterscale update to Banken_v3
+            when requested_on >= '2025-07-05 21:57:00.000000'::timestamp then
+                case
+                    when rating = 'A' then 'B'
+                    when rating = 'B' then 'C'
+                    when rating = 'C' then 'D'
+                    when rating = 'D' then 'E'
+                    when rating = 'E' then 'F'
+                    when rating = 'F' then 'G'
+                    else rating
+                end
+
             else rating
         end as rating
+
     from private.californium_credit_score_audit_log
 ),
+
 
 ordered_schufa_scores as (
 
@@ -40,7 +46,7 @@ ordered_schufa_scores as (
     from base
     inner join mapped_schufa_scores as ca
         on base.user_id = ca.user_id
-        and ca.requested_on::date < base.reference_date::date
+        and ca.requested_on::date <= base.reference_date::date
 
 ),
 

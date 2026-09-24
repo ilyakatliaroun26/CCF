@@ -53,7 +53,7 @@ class DataCollector:
 
         merged_path = os.path.join(self.raw_dir, f"merged_{self.mode}_data.csv")
         merged_df.to_csv(merged_path, index=False)
-        print(f"✅ Merged dataset saved to {merged_path} (shape: {merged_df.shape})")
+        print(f"Merged dataset saved to {merged_path} (shape: {merged_df.shape})")
         return merged_df
 
     def run(self) -> pd.DataFrame:
