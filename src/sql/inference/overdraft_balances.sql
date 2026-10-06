@@ -20,7 +20,7 @@ od_users as (
     -- Include rows from Plutonium after the first populated date
     select
         osa.user_id,
-        s.encoded_key as instrument_id,
+        s.mambu_account_encoded_key as instrument_id,
         osa.created as rev_timestamp,
         coalesce(
             lead(rev_timestamp - interval '0.000001 second', 1) 
@@ -30,7 +30,7 @@ od_users as (
     from pu_overdraft_history as osa
     inner join pu_first_row as pfr using (user_id)
     left join dbt.mmbr_user_match cl on cl.user_id = osa.user_id
-    left join mmbr_savings_account s on s.encoded_key = cl.encoded_key and s.account_type = 'CURRENT_ACCOUNT'
+    left join geneva.mambu_n26_account_user_product_mapping s on s.account_id = cl.account_id
     where 1=1
     and rev_timestamp >= pfr.min_rev_timestamp
 	-- todo: filter more detailed for migration timestamp
@@ -40,7 +40,7 @@ od_users as (
     -- Include rows from DDB before the first Plutonium populated date
     select
         u.id as user_id,
-        s.encoded_key as instrument_id,
+        s.mambu_account_encoded_key as instrument_id,
         osa.rev_timestamp as rev_timestamp,
         osa.end_timestamp as end_timestamp,
         osa.enabled,
@@ -50,7 +50,7 @@ od_users as (
     left join pu_first_row as pfr
         on u.id = pfr.user_id
     left join dbt.mmbr_user_match cl on cl.user_id = u.id
-    left join mmbr_savings_account s on s.encoded_key = cl.encoded_key and s.account_type = 'CURRENT_ACCOUNT'
+    left join geneva.mambu_n26_account_user_product_mapping s on s.account_id = cl.account_id
     where
         osa.rev_timestamp < pfr.min_rev_timestamp -- Include only historical records before Plutonium migration
 ),
