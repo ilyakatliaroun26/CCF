@@ -6,11 +6,7 @@ with base as (
     select
     laa.user_id,
     dcd.start_time,
-<<<<<<< HEAD
-    sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance) as cc_outstanding_balance_eur
-=======
     nullif(sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance), 0) as cc_outstanding_balance_eur
->>>>>>> origin/model_version_release
 from dbt.mmbr_loan_account_aud laa
 inner join dbt.mmbr_loan_product_mapping lpm
     on laa.loan_name = lpm.loan_name
@@ -27,11 +23,7 @@ inner join dbt.mmbr_loan_product_mapping lpm
     select
     laa.user_id,
     dcd.start_time,
-<<<<<<< HEAD
-    sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance) as tbil_outstanding_balance_eur
-=======
     nullif(sum(principal_balance + interest_balance + interest_from_arrears_balance + fees_balance + penalty_balance), 0) as tbil_outstanding_balance_eur
->>>>>>> origin/model_version_release
 from dbt.mmbr_loan_account_aud laa
 inner join dbt.mmbr_loan_product_mapping lpm
     on laa.loan_name = lpm.loan_name

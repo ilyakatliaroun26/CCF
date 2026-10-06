@@ -12,16 +12,16 @@ daily_account_balances as (
     select 
         b.user_id
         , b.reference_date
-        , db.date
+        , db.reference_date as date
         , sum(db.balance_eur) as balance_eur
         , lag(sum(db.balance_eur)) over (
             partition by b.user_id, b.reference_date 
-            order by db.date
+            order by db.reference_date
         ) as prev_balance_eur
     from base b
-    left join dbt.mmb_daily_balance_aud db
+    left join dbt.balance_users db
         on b.user_id = db.user_id
-        and db.date::date <= b.reference_date::date
+        and db.reference_date::date <= b.reference_date::date
     group by 1, 2, 3
 ),
 
